@@ -18,7 +18,7 @@ using IterTools: ncycle
 using Zygote
 using ChainRules: @ignore_derivatives
 using Base: @kwdef
-using Flux
+using Flux, Lux, ComponentArrays
 using Tullio
 using Infiltrator, Cthulhu
 using Plots, PlotThemes
@@ -31,6 +31,12 @@ using Downloads
 using TimerOutputs
 using GeoStats
 using ImageFiltering
+using EnzymeCore
+
+# This is equivalent to `@ignore_derivatives`
+EnzymeCore.EnzymeRules.inactive(::typeof(Huginn.define_callback_steps), args...; kwargs...) = nothing
+EnzymeCore.EnzymeRules.inactive(::typeof(Muninn.MB_timestep!), args...; kwargs...) = nothing
+EnzymeCore.EnzymeRules.inactive(::typeof(apply_MB_mask!), args...; kwargs...) = nothing
 
 # ##############################################
 # ############    PARAMETERS     ###############

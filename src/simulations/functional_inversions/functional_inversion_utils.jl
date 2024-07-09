@@ -28,7 +28,7 @@ function train_UDE!(simulation::FunctionalInversion)
     train_batches = generate_batches(simulation)
     θ = simulation.model.machine_learning.θ
 
-    optf = OptimizationFunction((θ, _, batch_ids, rgi_ids)->loss_iceflow(θ, batch_ids, simulation), Optimization.AutoReverseDiff())
+    optf = OptimizationFunction((θ, _, batch_ids, rgi_ids)->loss_iceflow(θ, batch_ids, simulation), Optimization.AutoZygote())
     optprob = OptimizationProblem(optf, θ)
     
     if simulation.parameters.UDE.target == "A"
@@ -127,15 +127,13 @@ function batch_iceflow_UDE(θ, simulation::FunctionalInversion, batch_id::I) whe
     # Initialize glacier ice flow model
     initialize_iceflow_model(model.iceflow[batch_id], batch_id, glacier, params)
 
-    params.solver.tstops =  @ignore_derivatives Huginn.define_callback_steps(params.simulation.tspan, params.solver.step)
+    params.solver.tstops =  Huginn.define_callback_steps(params.simulation.tspan, params.solver.step)
     stop_condition(u,t,integrator) = Sleipnir.stop_condition_tstops(u,t,integrator, params.solver.tstops) #closure
     function action!(integrator)
         if params.simulation.use_MB 
             # Compute mass balance
-            @ignore_derivatives begin 
-                MB_timestep!(model, glacier, params.solver.step, integrator.t; batch_id = batch_id)
-                apply_MB_mask!(integrator.u, glacier, model.iceflow[batch_id])
-            end
+            # MB_timestep!(model, glacier, params.solver.step, integrator.t; batch_id = batch_id)
+            # apply_MB_mask!(integrator.u, glacier, model.iceflow[batch_id])
         end
         # Apply parametrization
         apply_UDE_parametrization!(θ, simulation, integrator, batch_id)
@@ -144,7 +142,7 @@ function batch_iceflow_UDE(θ, simulation::FunctionalInversion, batch_id::I) whe
     cb_MB = DiscreteCallback(stop_condition, action!)
 
     # Run iceflow UDE for this glacier
-    du = params.simulation.use_iceflow ? Huginn.SIA2D : Huginn.noSIA2D
+    du = params.simulation.use_iceflow ? Huginn.SIA2D! : Huginn.noSIA2D!
     iceflow_sol = simulate_iceflow_UDE!(θ, simulation, model, params, cb_MB, batch_id; du = du)
 
     println("simulation finished for $batch_id")
@@ -218,7 +216,7 @@ end
 
 function apply_UDE_parametrization!(θ, simulation::FunctionalInversion, integrator, batch_id::I) where {I <: Integer}
     # We load the ML model with the parameters
-    U = simulation.model.machine_learning.NN_f(θ)
+    U = NN(simulation.model.machine_learning.architecture, simulation.model.machine_learning.st, convert(typeof(simulation.model.machine_learning.θ),θ))
     # We generate the ML parametrization based on the target 
     if simulation.parameters.UDE.target == "A"
         A = predict_A̅(U, [mean(simulation.glaciers[batch_id].climate.longterm_temps)])[1]
@@ -244,7 +242,7 @@ callback_plots_A = function (θ, l, simulation) # callback function to observe t
     p = sortperm(avg_temps)
     avg_temps = avg_temps[p]
     # We load the ML model with the parameters
-    U = simulation.model.machine_learning.NN_f(θ)
+    U = NN(simulation.model.machine_learning.architecture, simulation.model.machine_learning.st, convert(typeof(simulation.model.machine_learning.θ),θ))
     pred_A = predict_A̅(U, collect(-23.0:1.0:0.0)')
     pred_A = Float64[pred_A...] # flatten
     true_A = A_fake(avg_temps, true)
